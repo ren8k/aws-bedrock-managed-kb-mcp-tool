@@ -1,0 +1,10 @@
+{
+	"metadataAttributes": {
+		"department": "shared",
+		"year": 2025
+	},
+	"accessControlList": [
+		{ "Name": "user-a@example.com", "Type": "USER", "Access": "ALLOW" },
+		{ "Name": "user-b@example.com", "Type": "USER", "Access": "ALLOW" }
+	]
+}
