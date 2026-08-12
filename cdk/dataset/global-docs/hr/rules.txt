@@ -1,0 +1,22 @@
+人事部 就業規則
+
+本書は人事部が管理する就業規則について記載する。
+
+規則管理コード: ノスリ-9909
+
+このコードは検証用の一意識別のために埋め込まれた架空のトークンであり、
+実在の情報とは関係がない。
+Earlier this week, I had the pleasure of speaking at AWS Bedrock LLM Day Japan, and I've just published my presentation slides!
+The session covers the latest features of Amazon Bedrock AgentCore, including:
+Managed Knowledge Base
+Web Search Tool on AgentCore
+AgentCore Harness
+These capabilities are evolving rapidly, and it can be challenging to keep up with all the updates. I hope these slides help you catch up efficiently.
+ A huge thank you to everyone who joined the Tech Session!
+Slides: https://speakerdeck.com/ren8k/agentcore-updates-bedrock-llm-day-japan
+—-
+一昨日の AWS Bedrock LLM Day Japan の登壇資料を公開しました！
+AgentCore の最新機能である Managed Knowledge Base, Web Search Tool on AgentCore, AgentCore harness について解説しています。
+どの機能もアップデートが多く、キャッチアップが難しいかと思うので、是非ご活用下さい！
+Tech Session にご参加いただいた皆様、誠にありがとうございました！
+Slides: https://speakerdeck.com/ren8k/agentcore-updates-bedrock-llm-day-japan

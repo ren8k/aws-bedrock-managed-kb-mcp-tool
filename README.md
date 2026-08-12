@@ -1,0 +1,156 @@
+# Managed Knowledge Base を AgentCore Gateway 経由で MCP Tool として利用する
+
+Amazon Bedrock Managed Knowledge Base を AgentCore Gateway のコネクタターゲットで MCP ツール化し、REQUEST Interceptor で `userContext` を注入して ACL-aware retrieval をユーザー毎に成立させる検証コード一式。CDK スタック 1 つで検証環境が自己完結する。
+
+## 構成
+
+```
+cdk/                            インフラ (AWS CDK, TypeScript)
+  bin/app.ts                    エントリポイント
+  lib/managed-kb-gateway-stack.ts  S3 + Managed KB + Cognito + Gateway + Interceptor + KB target
+  lambda/interceptor/handler.py REQUEST Interceptor (userInfo で email 解決 + userContext 注入)
+  dataset/docs/                 テスト文書 + per-document ACL + metadataAttributes
+  dataset/global-docs/          テスト文書 (global ACL ファイルで制御。no-acl/ は ACL なし)
+agent/                          Agent 実装 (Strands Agents, Python)
+  run.sh                        トークン発行 + 各スクリプト実行のヘルパー
+  agent_interceptor.py          方式 1: Interceptor 注入構成のクライアント (フックなし)
+  agent_hook.py                 方式 2: BeforeToolCallEvent フックで注入するクライアント
+  list_gateway_tools.py         tools/list の直接実行 (公開スキーマの採取)
+  verify_usercontext_injection.py  注入・詐称防止の直接呼び出し検証
+  verify_global_acl.py          global ACL 方式のフィルタリング検証
+  verify_metadata_filter.py     メタデータフィルタリングと ACL の併用 (AND) 検証
+```
+
+スタックが作成するリソース: S3 バケット (テスト文書 + ACL サイドカー + global ACL ファイルを自動配置) / Managed Knowledge Base (type: MANAGED) + ACL 有効 S3 データソース x2 (文書毎メタデータ方式 / global ACL ファイル方式) / Cognito user pool + ドメイン (userInfo エンドポイント) + app client + テストユーザー x2 / REQUEST Interceptor Lambda / AgentCore Gateway (CUSTOM_JWT) + Managed KB connector target。
+
+## フィルタリングの 3 方式
+
+| データソース  | プレフィックス | 定義方法                                            | テスト文書                                                         |
+| ------------- | -------------- | --------------------------------------------------- | ------------------------------------------------------------------ |
+| `docs`        | `docs/`        | 文書毎のメタデータファイル (`{名前}.metadata.json`) | dept-a-plan (user-a) / dept-b-plan (user-b) / shared-notice (両者) |
+| `global-docs` | `global-docs/` | global ACL ファイル (`acl-config/global-acl.json`)  | finance/budget (user-a) / hr/rules (user-b) / no-acl/ (ACL なし)   |
+
+global ACL ファイルは文書の絶対 S3 URI で対象を指定するため静的アセットにできず、CDK が `s3deploy.Source.jsonData` でバケット名を埋め込んで生成する。`global-docs/no-acl/` 配下の文書はどの `keyPrefix` にも該当せずサイドカーも持たないため取り込まれない (fail-closed の確認用。2026 年 8 月の実測ではインジェストは COMPLETE で完了し、3 件スキャン中 2 件のみがインデックスされる)。
+
+`docs` 側のサイドカーは `accessControlList` (ACL) と `metadataAttributes` (属性) の両方を持ち、ACL とメタデータフィルタリングの併用を確認できる。
+
+| 文書          | ACL            | department | year |
+| ------------- | -------------- | ---------- | ---- |
+| dept-a-plan   | user-a         | `d001`     | 2026 |
+| dept-b-plan   | user-b         | `d002`     | 2026 |
+| shared-notice | user-a, user-b | `shared`   | 2025 |
+
+属性値に区切り文字 (ハイフン / アンダースコア) を含めていないのは意図的である。`equals` の文字列比較はトークン分割 + ストップワード除去で評価されるため、`dept-a` のような値は他の `dept-*` 文書にも誤マッチする。
+
+filter は Gateway のツールスキーマには公開していない (Target で visible にしているのは `$.userContext` のみ)。アクセス制御を担う値を LLM に組み立てさせないという設計方針であり、filter の検証は `Retrieve` API 直接で行う。
+
+## 認証と userContext の解決 (OAuth 2.0 準拠)
+
+クライアントが送るのは Authorization ヘッダーのアクセストークン 1 つだけで、標準的な OAuth 2.0 の bearer 認証と同じ形になる。
+
+1. Gateway の JWT authorizer (`allowedClients`) がアクセストークンの署名・有効期限・client_id を検証する
+2. REQUEST Interceptor が、その検証済みアクセストークン自身の権限でユーザーの email を解決する
+3. Interceptor が email を `tools/call` の `arguments.userContext` に強制設定する (クライアント指定値は上書き)
+
+email の出所がアクセストークン自身の権限で取得した情報になるため、認証された主体と userContext の主体は構造的に乖離しない。解決結果は Lambda 実行環境のプロセス内キャッシュ (sub -> email、TTL 5 分) で再利用している。実行環境の再利用に相乗りする確率的キャッシュであり、ミス時は解決し直すだけなので正確性には影響しない。
+
+email の解決先はトークンのスコープに応じて 2 段構えになっている。`openid` スコープを持つトークン (Hosted UI の 3LO 等) は OIDC 標準の userInfo エンドポイントで、持たないトークン (`USER_PASSWORD_AUTH` の `aws.cognito.signin.user.admin` スコープ) は Cognito の GetUser API で解決する。Cognito の userInfo は `openid` スコープを要求し、`USER_PASSWORD_AUTH` のトークンには `openid` が含まれないため、単一の解決先では両方のトークンを受けられない。
+
+## デプロイ
+
+```bash
+cd cdk
+npm install
+npx cdk deploy ManagedKbGatewayStack --outputs-file outputs.json
+```
+
+テストユーザー (user-a@example.com / user-b@example.com) もスタックが作成する。パスワードはデプロイ毎に Secrets Manager (`managed-kb-test-user-password`) に生成され、リポジトリやテンプレートには現れない。CloudFormation ネイティブ (`CfnUserPoolUser`) では恒久パスワードを設定できないため、`AwsCustomResource` による `adminSetUserPassword` (Permanent: true) を併用しており、デプロイ直後から `USER_PASSWORD_AUTH` で認証できる。
+
+```bash
+# テストユーザーのパスワードの取得
+aws secretsmanager get-secret-value \
+  --secret-id managed-kb-test-user-password --query 'SecretString' --output text
+```
+
+## セットアップ (デプロイ後に 1 回)
+
+2 つのデータソースの同期 (ingestion) を実行する。Managed KB の同期は非同期のため、順番に実行する。
+
+```bash
+# 文書毎メタデータ方式
+aws bedrock-agent start-ingestion-job \
+  --knowledge-base-id <KbId> --data-source-id <DataSourceId>
+
+# global ACL ファイル方式 (完了後に実行)
+aws bedrock-agent start-ingestion-job \
+  --knowledge-base-id <KbId> --data-source-id <GlobalDataSourceId>
+```
+
+`global-docs` 側は `no-acl/` の文書が意図的に ACL 未定義なので、3 件スキャン中 2 件のみがインデックスされるのが正常な結果である (2026 年 8 月の実測では `numberOfNewDocumentsIndexed: 2`、`numberOfDocumentsFailed: 0` の COMPLETE)。
+
+## Agent の実行
+
+`agent/run.sh` が `cdk/outputs.json` から Gateway URL / KB ID / Cognito 設定を読み、Secrets Manager のパスワードでアクセストークンを発行してから各スクリプトを実行する。ユーザーは `a` / `b` で切り替える (既定は `a`)。
+
+```bash
+./agent/run.sh agent "A部門の事業計画に記載されている計画管理コードは何ですか？"      # 方式 1
+./agent/run.sh hook  "B部門の事業計画に記載されている計画管理コードは何ですか？" b   # 方式 2
+./agent/run.sh tools          # tools/list (公開スキーマの確認)
+./agent/run.sh token b        # アクセストークンの表示
+./agent/run.sh                # 使い方の表示
+```
+
+トークンを自分で発行して個々のスクリプトを直接叩く場合は以下のとおり。パスワードは記号を含むため、ショートハンド形式ではなく JSON で渡す。
+
+```bash
+# アクセストークンの取得
+PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id managed-kb-test-user-password --query 'SecretString' --output text)
+jq -n --arg p "$PASSWORD" \
+  '{USERNAME: "user-a@example.com", PASSWORD: $p}' > /tmp/auth-params.json
+aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH \
+  --client-id <UserPoolClientId> \
+  --auth-parameters file:///tmp/auth-params.json \
+  --query 'AuthenticationResult.AccessToken' --output text
+
+# Agent の実行 (方式 1: Interceptor 構成)
+uv run python agent/agent_interceptor.py \
+  --gateway-url <outputs.json の GatewayUrl> \
+  --access-token <ACCESS_TOKEN> \
+  --prompt "A部門の事業計画に記載されている計画管理コードは何ですか？"
+
+# Agent の実行 (方式 2: アプリ側フック構成。GetUser で email を解決)
+uv run python agent/agent_hook.py \
+  --gateway-url <outputs.json の GatewayUrl> \
+  --access-token <ACCESS_TOKEN> \
+  --prompt "A部門の事業計画に記載されている計画管理コードは何ですか？"
+```
+
+user-a は A 部門文書 (ヤマセミ-1101) のみ、user-b は B 部門文書 (クマタカ-2202) のみが検索でき、共有通知 (ハヤブサ-3303) は両者が検索できる。プロンプトで userContext の詐称を指示しても、Gateway の Interceptor がアクセストークンから解決した email で上書きするため他部門の文書は返らない。
+
+global ACL 方式でも同じく、user-a は財務部の予算資料 (トビ-8808) のみ、user-b は人事部の就業規則 (ノスリ-9909) のみを検索できる。ACL 未定義の未分類メモ (フクロウ-5505) は取り込まれていないため誰にも返らない。
+
+## 検証スクリプト
+
+```bash
+./agent/run.sh verify-all               # 以下 3 つを一括実行
+./agent/run.sh verify-injection         # userContext の注入・詐称防止・無効トークンの拒否
+./agent/run.sh verify-global-acl        # global ACL 方式のフィルタリングマトリクス
+./agent/run.sh verify-metadata-filter   # メタデータフィルタリングと ACL の併用
+```
+
+個別に実行する場合は以下のとおり。
+
+```bash
+# userContext の注入・詐称防止・無効トークンの拒否 (Gateway 経由)
+uv run python agent/verify_usercontext_injection.py \
+  --gateway-url <GatewayUrl> --access-token-a <user-a の ACCESS_TOKEN>
+
+# global ACL 方式のフィルタリングマトリクス (Retrieve API 直接)
+uv run python agent/verify_global_acl.py --kb-id <KbId>
+
+# メタデータフィルタリングと ACL の併用 (Retrieve API 直接)
+uv run python agent/verify_metadata_filter.py --kb-id <KbId>
+```
+
+`verify_metadata_filter.py` は 2 段構成で検証する。前半は filter の基本動作 (`equals` / `andAll` / `greaterThan`)、後半は ACL と filter が独立した 2 つのゲートとして AND で効くことの切り分けである。ACL 許可 + filter 不一致が 0 件になることで「ACL 優先」仮説が、ACL 拒否 + filter 一致が 0 件になることで「filter 優先」仮説が、それぞれ棄却される。あわせて customer-managed KB の `vectorSearchConfiguration.filter` 構文が Managed KB では拒否されることも確認する。

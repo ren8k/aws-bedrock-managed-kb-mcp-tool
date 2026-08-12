@@ -1,0 +1,9 @@
+{
+	"metadataAttributes": {
+		"department": "d001",
+		"year": 2026
+	},
+	"accessControlList": [
+		{ "Name": "user-a@example.com", "Type": "USER", "Access": "ALLOW" }
+	]
+}
