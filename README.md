@@ -19,6 +19,7 @@ agent/                          Agent 実装 (Strands Agents, Python)
   verify_usercontext_injection.py  注入・詐称防止の直接呼び出し検証
   verify_global_acl.py          global ACL 方式のフィルタリング検証
   verify_metadata_filter.py     メタデータフィルタリングと ACL の併用 (AND) 検証
+advanced-policy/                発展形: AgentCore Policy (Cedar) による多層防御の派生構成 (詳細は advanced-policy/README.md)
 ```
 
 スタックが作成するリソース: S3 バケット (テスト文書 + ACL サイドカー + global ACL ファイルを自動配置) / Managed Knowledge Base (type: MANAGED) + ACL 有効 S3 データソース x2 (文書毎メタデータ方式 / global ACL ファイル方式) / Cognito user pool + ドメイン (userInfo エンドポイント) + app client + テストユーザー x2 / REQUEST Interceptor Lambda / AgentCore Gateway (CUSTOM_JWT) + Managed KB connector target。
