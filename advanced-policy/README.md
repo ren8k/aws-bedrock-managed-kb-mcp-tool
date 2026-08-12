@@ -34,6 +34,16 @@ permit(
 };
 ```
 
+## Gateway 実行ロールに必要な Policy 関連権限 (実測)
+
+`policyEngineConfiguration` を持つ Gateway の作成時、サービスは Gateway 実行ロールで以下を事前チェックする (不足していると CreateGateway が access denied で失敗する。2026 年 8 月時点で公式ドキュメントに一覧はなく、エラーメッセージから特定した)。
+
+- `bedrock-agentcore:GetPolicyEngine` (対象: Policy Engine の ARN)
+- `bedrock-agentcore:AuthorizeAction` (対象: Policy Engine と Gateway の ARN。tools/call の評価)
+- `bedrock-agentcore:PartiallyAuthorizeActions` (対象: 同上。tools/list のフィルタリング)
+
+Gateway の ARN は作成前に確定しないため、本スタックでは名前パターン `gateway/managed-kb-policy-*` でスコープしている。また CfnGateway は roleArn しか参照せず、CloudFormation はロールの DefaultPolicy の作成完了を待たないため、Gateway に Role コンストラクトへの明示的な依存 (`gateway.node.addDependency(gwRole)`) が必要。
+
 ## デプロイ
 
 ```bash
@@ -71,4 +81,4 @@ verify-policy の検証内容:
 
 検証用 Gateway は deny の観測と Policy 単体構成の比較デモ用であり、本番構成はメイン Gateway (Interceptor + Policy) を推奨する。Policy 単体では tools/call の userContext を組み立てる主体が LLM に戻り、拒否ベースの防御になるため。
 
-検証後は `npx cdk destroy ManagedKbPolicyStack` で削除できる (S3 バケットは RETAIN のため手動削除)。
+検証後は `npx cdk destroy ManagedKbPolicyStack` で削除できる。ベース構成と異なり S3 バケットは DESTROY + autoDeleteObjects のため、スタック削除で中身ごと削除される。

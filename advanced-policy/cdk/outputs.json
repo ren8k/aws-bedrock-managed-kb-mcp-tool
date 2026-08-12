@@ -1,0 +1,18 @@
+{
+  "ManagedKbPolicyStack": {
+    "GatewayUrl": "https://managed-kb-policy-gateway-iqwihmzchm.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp",
+    "TestUserPasswordSecretName": "managed-kb-policy-test-user-password",
+    "NoInterceptorGatewayId": "managed-kb-policy-noint-zy85fuueo2",
+    "GatewayId": "managed-kb-policy-gateway-iqwihmzchm",
+    "PreTokenFnName": "managed-kb-policy-pre-token",
+    "TargetId": "WUJQOTIV3B",
+    "KbId": "G1CO95AXEM",
+    "UserPoolClientId": "63p0o2pbdahkusrnt44ld8smml",
+    "BucketName": "managed-kb-policy-869603330160",
+    "UserPoolId": "us-east-1_WOemY0EZi",
+    "PolicyEngineId": "managed_kb_policy_engine-8pm_xnw4f2",
+    "InterceptorFnName": "managed-kb-policy-usercontext-interceptor",
+    "DataSourceId": "UDEYP2SG0J",
+    "NoInterceptorGatewayUrl": "https://managed-kb-policy-noint-zy85fuueo2.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp"
+  }
+}

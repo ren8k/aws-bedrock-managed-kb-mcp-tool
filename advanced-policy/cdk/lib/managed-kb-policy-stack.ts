@@ -6,6 +6,7 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as cr from "aws-cdk-lib/custom-resources";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -38,12 +39,16 @@ export class ManagedKbPolicyStack extends cdk.Stack {
 		const region = cdk.Stack.of(this).region;
 
 		// ---- S3 bucket + dataset (documents + ACL sidecars) ----
+		// Unlike the base stack this verification variant destroys the
+		// bucket with the stack, so failed deployments and cdk destroy
+		// leave nothing behind.
 		const bucket = new s3.Bucket(this, "KbBucket", {
 			bucketName: `managed-kb-policy-${account}`,
 			blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
 			encryption: s3.BucketEncryption.S3_MANAGED,
 			enforceSSL: true,
-			removalPolicy: cdk.RemovalPolicy.RETAIN,
+			removalPolicy: cdk.RemovalPolicy.DESTROY,
+			autoDeleteObjects: true,
 		});
 		const dataset = new s3deploy.BucketDeployment(this, "DatasetDeployment", {
 			sources: [s3deploy.Source.asset(path.join(__dirname, "..", "dataset"))],
@@ -158,6 +163,11 @@ export class ManagedKbPolicyStack extends cdk.Stack {
 				path.join(__dirname, "..", "lambda", "pre-token-gen"),
 			),
 			timeout: cdk.Duration.seconds(10),
+			logGroup: new logs.LogGroup(this, "PreTokenGenLogs", {
+				logGroupName: "/aws/lambda/managed-kb-policy-pre-token",
+				retention: logs.RetentionDays.ONE_WEEK,
+				removalPolicy: cdk.RemovalPolicy.DESTROY,
+			}),
 		});
 		userPool.addTrigger(
 			cognito.UserPoolOperation.PRE_TOKEN_GENERATION_CONFIG,
@@ -262,6 +272,11 @@ export class ManagedKbPolicyStack extends cdk.Stack {
 				path.join(__dirname, "..", "lambda", "interceptor"),
 			),
 			timeout: cdk.Duration.seconds(30),
+			logGroup: new logs.LogGroup(this, "InterceptorLogs", {
+				logGroupName: "/aws/lambda/managed-kb-policy-usercontext-interceptor",
+				retention: logs.RetentionDays.ONE_WEEK,
+				removalPolicy: cdk.RemovalPolicy.DESTROY,
+			}),
 		});
 
 		// ---- Gateway execution role ----
@@ -297,6 +312,35 @@ export class ManagedKbPolicyStack extends cdk.Stack {
 			description:
 				"Verifies that userContext matches the JWT email claim after interception",
 		});
+		// The gateway evaluates Cedar policies with its execution role:
+		// CreateGateway validates GetPolicyEngine on the policy engine and
+		// AuthorizeAction (the runtime evaluation API) on both the policy
+		// engine and the gateway itself. The gateway ARN contains a
+		// generated suffix that does not exist before creation, so
+		// AuthorizeAction is scoped by name pattern instead.
+		gwRole.addToPolicy(
+			new iam.PolicyStatement({
+				sid: "PolicyEngineRead",
+				actions: ["bedrock-agentcore:GetPolicyEngine"],
+				resources: [policyEngine.attrPolicyEngineArn],
+			}),
+		);
+		gwRole.addToPolicy(
+			new iam.PolicyStatement({
+				sid: "PolicyEvaluate",
+				// AuthorizeAction evaluates tools/call; PartiallyAuthorizeActions
+				// filters tools/list. Both are checked against the policy engine
+				// and the gateway resource.
+				actions: [
+					"bedrock-agentcore:AuthorizeAction",
+					"bedrock-agentcore:PartiallyAuthorizeActions",
+				],
+				resources: [
+					policyEngine.attrPolicyEngineArn,
+					`arn:aws:bedrock-agentcore:${region}:${account}:gateway/managed-kb-policy-*`,
+				],
+			}),
+		);
 
 		// ---- Gateway (CUSTOM_JWT + REQUEST interceptor + policy engine) ----
 		const gateway = new agentcore.CfnGateway(this, "Gateway", {
@@ -332,6 +376,11 @@ export class ManagedKbPolicyStack extends cdk.Stack {
 				mode: "ENFORCE",
 			},
 		});
+		// The gateway only references gwRole.roleArn, which orders it after
+		// the Role resource but NOT after the role's default policy.
+		// CreateGateway validates GetPolicyEngine with the role, so it must
+		// wait for the policy attachment (the Role construct includes it).
+		gateway.node.addDependency(gwRole);
 
 		// ---- Managed KB connector target ----
 		const target = new agentcore.CfnGatewayTarget(this, "KbTarget", {
@@ -429,6 +478,7 @@ export class ManagedKbPolicyStack extends cdk.Stack {
 				},
 			},
 		);
+		nointGateway.node.addDependency(gwRole);
 		const nointTarget = new agentcore.CfnGatewayTarget(this, "NoIntKbTarget", {
 			gatewayIdentifier: nointGateway.attrGatewayIdentifier,
 			name: "kb",
