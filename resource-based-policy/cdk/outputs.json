@@ -1,0 +1,21 @@
+{
+  "ManagedKbRbpStack": {
+    "GatewayUrl": "https://managed-kb-rbp-gateway-sf2lsudcld.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp",
+    "RogueGatewayId": "managed-kb-rbp-rogue-sypinrl5sl",
+    "TestUserPasswordSecretName": "managed-kb-rbp-test-user-password",
+    "KbArn": "arn:aws:bedrock:us-east-1:869603330160:knowledge-base/VDQYFQZ1KH",
+    "GatewayRoleArn": "arn:aws:iam::869603330160:role/managed-kb-rbp-gateway-role",
+    "RogueRoleArn": "arn:aws:iam::869603330160:role/managed-kb-rbp-rogue-role",
+    "GatewayId": "managed-kb-rbp-gateway-sf2lsudcld",
+    "PreTokenFnName": "managed-kb-rbp-pre-token",
+    "TargetId": "3MHWDLOUDK",
+    "KbId": "VDQYFQZ1KH",
+    "UserPoolClientId": "6fojki4gl2t94nfudb7o7l9p1f",
+    "BucketName": "managed-kb-rbp-869603330160",
+    "UserPoolId": "us-east-1_UnYFrfneX",
+    "PolicyEngineId": "managed_kb_rbp_engine-we4wkjy9a3",
+    "RogueGatewayUrl": "https://managed-kb-rbp-rogue-sypinrl5sl.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp",
+    "InterceptorFnName": "managed-kb-rbp-usercontext-interceptor",
+    "DataSourceId": "TOYTIIXRTZ"
+  }
+}
