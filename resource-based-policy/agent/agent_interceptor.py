@@ -1,4 +1,4 @@
-"""方式 1: Gateway REQUEST Interceptor で userContext を注入する構成の Agent。
+"""Gateway REQUEST Interceptor で userContext を注入する構成の Agent。
 
 クライアント側に userContext のロジックは一切ない。送るのは Authorization
 ヘッダーのアクセストークン 1 つだけで、OAuth 2.0 の標準的な bearer 認証と
@@ -48,16 +48,16 @@ def run_agent(gateway_url: str, access_token: str, prompt: str) -> str:
             gateway_url, headers={"Authorization": f"Bearer {access_token}"}
         )
     )
-    with mcp_client:
-        tools = mcp_client.list_tools_sync()
-        print(f"tools: {[t.tool_name for t in tools]}")
-        agent = Agent(
-            model=MODEL_ID,
-            tools=tools,
-            system_prompt=SYSTEM_PROMPT,
-            callback_handler=None,
-        )
-        return str(agent(prompt))
+    # MCPClient を ToolProvider として直接渡すと、MCP セッションの
+    # ライフサイクルは Agent 側が管理する (Managed Integration)。
+    agent = Agent(
+        model=MODEL_ID,
+        tools=[mcp_client],
+        system_prompt=SYSTEM_PROMPT,
+        callback_handler=None,
+    )
+    print(f"tools: {agent.tool_names}")
+    return str(agent(prompt))
 
 
 def main() -> None:

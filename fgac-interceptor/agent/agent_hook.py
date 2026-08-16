@@ -23,6 +23,7 @@ Usage:
 """
 
 import argparse
+import re
 from typing import Any
 
 import boto3
@@ -102,25 +103,24 @@ def run_agent(gateway_url: str, access_token: str, prompt: str) -> str:
     mcp_client = MCPClient(
         lambda: streamablehttp_client(
             gateway_url, headers={"Authorization": f"Bearer {access_token}"}
-        )
-    )
-    with mcp_client:
+        ),
         # フックが注入する userContext は visible なツールにしか渡せない。
         # 対象ターゲットのツールのみに限定する。
-        tools = [
-            t
-            for t in mcp_client.list_tools_sync()
-            if t.tool_name.endswith(("___Retrieve", "___AgenticRetrieveStream"))
-        ]
-        print(f"tools: {[t.tool_name for t in tools]}")
-        agent = Agent(
-            model=MODEL_ID,
-            tools=tools,
-            hooks=[InjectUserContext(user_id)],
-            system_prompt=SYSTEM_PROMPT,
-            callback_handler=None,
-        )
-        return str(agent(prompt))
+        tool_filters={
+            "allowed": [re.compile(r".*___(Retrieve|AgenticRetrieveStream)$")]
+        },
+    )
+    # MCPClient を ToolProvider として直接渡すと、MCP セッションの
+    # ライフサイクルは Agent 側が管理する (Managed Integration)。
+    agent = Agent(
+        model=MODEL_ID,
+        tools=[mcp_client],
+        hooks=[InjectUserContext(user_id)],
+        system_prompt=SYSTEM_PROMPT,
+        callback_handler=None,
+    )
+    print(f"tools: {agent.tool_names}")
+    return str(agent(prompt))
 
 
 def main() -> None:
