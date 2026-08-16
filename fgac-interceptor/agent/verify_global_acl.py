@@ -8,7 +8,7 @@ ACL エントリを持たない 1 文書について、userContext 別のヒッ�
 - no-acl/unclassified-memo.txt (ACL なし) -> 誰にもヒットしない (未取り込み)
 
 Usage:
-    uv run python agent/verify_global_acl.py --kb-id <KbId>
+    uv run python fgac-interceptor/agent/verify_global_acl.py --kb-id <KbId>
 """
 
 import argparse

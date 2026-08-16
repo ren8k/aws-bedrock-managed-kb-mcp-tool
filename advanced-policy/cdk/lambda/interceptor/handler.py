@@ -1,6 +1,6 @@
 """AgentCore Gateway REQUEST interceptor (email クレーム版)。
 
-ベース構成 (cdk/lambda/interceptor/handler.py) では、アクセストークンに
+ベース構成 (fgac-interceptor/cdk/lambda/interceptor/handler.py) では、アクセストークンに
 email クレームが含まれないため、userInfo / GetUser の外部呼び出しで email
 を解決していた。本構成では Cognito の Pre Token Generation トリガーが
 email をアクセストークンのクレームに追加するため、authorizer 検証済み

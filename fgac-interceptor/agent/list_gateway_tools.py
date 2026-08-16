@@ -5,7 +5,7 @@ inputSchema を表示する。parameterOverrides で visible にした
 userContext がスキーマに現れていることの確認に使う。
 
 Usage:
-    uv run python agent/list_gateway_tools.py \
+    uv run python fgac-interceptor/agent/list_gateway_tools.py \
         --gateway-url <GatewayUrl> \
         --access-token <ACCESS_TOKEN> \
         [--raw]

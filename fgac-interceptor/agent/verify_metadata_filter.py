@@ -9,7 +9,7 @@ customer-managed KB の vectorSearchConfiguration 構文が拒否されること
 (どちらか一方が他方を上書きする優先関係ではないこと) の切り分け。
 
 Usage:
-    uv run python agent/verify_metadata_filter.py --kb-id <KbId>
+    uv run python fgac-interceptor/agent/verify_metadata_filter.py --kb-id <KbId>
 """
 
 import argparse

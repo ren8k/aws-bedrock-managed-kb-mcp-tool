@@ -5,20 +5,21 @@ Amazon Bedrock Managed Knowledge Base を AgentCore Gateway のコネクタタ�
 ## 構成
 
 ```
-cdk/                            インフラ (AWS CDK, TypeScript)
-  bin/app.ts                    エントリポイント
-  lib/managed-kb-gateway-stack.ts  S3 + Managed KB + Cognito + Gateway + Interceptor + KB target
-  lambda/interceptor/handler.py REQUEST Interceptor (userInfo で email 解決 + userContext 注入)
-  dataset/docs/                 テスト文書 + per-document ACL + metadataAttributes
-  dataset/global-docs/          テスト文書 (global ACL ファイルで制御。no-acl/ は ACL なし)
-agent/                          Agent 実装 (Strands Agents, Python)
-  run.sh                        トークン発行 + 各スクリプト実行のヘルパー
-  agent_interceptor.py          方式 1: Interceptor 注入構成のクライアント (フックなし)
-  agent_hook.py                 方式 2: BeforeToolCallEvent フックで注入するクライアント
-  list_gateway_tools.py         tools/list の直接実行 (公開スキーマの採取)
-  verify_usercontext_injection.py  注入・詐称防止の直接呼び出し検証
-  verify_global_acl.py          global ACL 方式のフィルタリング検証
-  verify_metadata_filter.py     メタデータフィルタリングと ACL の併用 (AND) 検証
+fgac-interceptor/               基本形: FGAC (ACL + メタデータフィルタリング) を Interceptor 注入で成立させる構成
+  cdk/                          インフラ (AWS CDK, TypeScript)
+    bin/app.ts                  エントリポイント
+    lib/managed-kb-gateway-stack.ts  S3 + Managed KB + Cognito + Gateway + Interceptor + KB target
+    lambda/interceptor/handler.py    REQUEST Interceptor (userInfo で email 解決 + userContext 注入)
+    dataset/docs/               テスト文書 + per-document ACL + metadataAttributes
+    dataset/global-docs/        テスト文書 (global ACL ファイルで制御。no-acl/ は ACL なし)
+  agent/                        Agent 実装 (Strands Agents, Python)
+    run.sh                      トークン発行 + 各スクリプト実行のヘルパー
+    agent_interceptor.py        方式 1: Interceptor 注入構成のクライアント (フックなし)
+    agent_hook.py               方式 2: BeforeToolCallEvent フックで注入するクライアント
+    list_gateway_tools.py       tools/list の直接実行 (公開スキーマの採取)
+    verify_usercontext_injection.py  注入・詐称防止の直接呼び出し検証
+    verify_global_acl.py        global ACL 方式のフィルタリング検証
+    verify_metadata_filter.py   メタデータフィルタリングと ACL の併用 (AND) 検証
 advanced-policy/                発展形: AgentCore Policy (Cedar) による多層防御の派生構成 (詳細は advanced-policy/README.md)
 resource-based-policy/          発展形: KB のリソースベースポリシーによる経路非依存の制限を追加した派生構成 (詳細は resource-based-policy/README.md)
 ```
@@ -61,7 +62,7 @@ email の解決先はトークンのスコープに応じて 2 段構えにな�
 ## デプロイ
 
 ```bash
-cd cdk
+cd fgac-interceptor/cdk
 npm install
 npx cdk deploy ManagedKbGatewayStack --outputs-file outputs.json
 ```
@@ -92,14 +93,14 @@ aws bedrock-agent start-ingestion-job \
 
 ## Agent の実行
 
-`agent/run.sh` が `cdk/outputs.json` から Gateway URL / KB ID / Cognito 設定を読み、Secrets Manager のパスワードでアクセストークンを発行してから各スクリプトを実行する。ユーザーは `a` / `b` で切り替える (既定は `a`)。
+`fgac-interceptor/agent/run.sh` が `fgac-interceptor/cdk/outputs.json` から Gateway URL / KB ID / Cognito 設定を読み、Secrets Manager のパスワードでアクセストークンを発行してから各スクリプトを実行する。ユーザーは `a` / `b` で切り替える (既定は `a`)。
 
 ```bash
-./agent/run.sh agent "A部門の事業計画に記載されている計画管理コードは何ですか？"      # 方式 1
-./agent/run.sh hook  "B部門の事業計画に記載されている計画管理コードは何ですか？" b   # 方式 2
-./agent/run.sh tools          # tools/list (公開スキーマの確認)
-./agent/run.sh token b        # アクセストークンの表示
-./agent/run.sh                # 使い方の表示
+./fgac-interceptor/agent/run.sh agent "A部門の事業計画に記載されている計画管理コードは何ですか？"      # 方式 1
+./fgac-interceptor/agent/run.sh hook  "B部門の事業計画に記載されている計画管理コードは何ですか？" b   # 方式 2
+./fgac-interceptor/agent/run.sh tools          # tools/list (公開スキーマの確認)
+./fgac-interceptor/agent/run.sh token b        # アクセストークンの表示
+./fgac-interceptor/agent/run.sh                # 使い方の表示
 ```
 
 トークンを自分で発行して個々のスクリプトを直接叩く場合は以下のとおり。パスワードは記号を含むため、ショートハンド形式ではなく JSON で渡す。
@@ -116,13 +117,13 @@ aws cognito-idp initiate-auth --auth-flow USER_PASSWORD_AUTH \
   --query 'AuthenticationResult.AccessToken' --output text
 
 # Agent の実行 (方式 1: Interceptor 構成)
-uv run python agent/agent_interceptor.py \
+uv run python fgac-interceptor/agent/agent_interceptor.py \
   --gateway-url <outputs.json の GatewayUrl> \
   --access-token <ACCESS_TOKEN> \
   --prompt "A部門の事業計画に記載されている計画管理コードは何ですか？"
 
 # Agent の実行 (方式 2: アプリ側フック構成。GetUser で email を解決)
-uv run python agent/agent_hook.py \
+uv run python fgac-interceptor/agent/agent_hook.py \
   --gateway-url <outputs.json の GatewayUrl> \
   --access-token <ACCESS_TOKEN> \
   --prompt "A部門の事業計画に記載されている計画管理コードは何ですか？"
@@ -135,24 +136,24 @@ global ACL 方式でも同じく、user-a は財務部の予算資料 (トビ-88
 ## 検証スクリプト
 
 ```bash
-./agent/run.sh verify-all               # 以下 3 つを一括実行
-./agent/run.sh verify-injection         # userContext の注入・詐称防止・無効トークンの拒否
-./agent/run.sh verify-global-acl        # global ACL 方式のフィルタリングマトリクス
-./agent/run.sh verify-metadata-filter   # メタデータフィルタリングと ACL の併用
+./fgac-interceptor/agent/run.sh verify-all               # 以下 3 つを一括実行
+./fgac-interceptor/agent/run.sh verify-injection         # userContext の注入・詐称防止・無効トークンの拒否
+./fgac-interceptor/agent/run.sh verify-global-acl        # global ACL 方式のフィルタリングマトリクス
+./fgac-interceptor/agent/run.sh verify-metadata-filter   # メタデータフィルタリングと ACL の併用
 ```
 
 個別に実行する場合は以下のとおり。
 
 ```bash
 # userContext の注入・詐称防止・無効トークンの拒否 (Gateway 経由)
-uv run python agent/verify_usercontext_injection.py \
+uv run python fgac-interceptor/agent/verify_usercontext_injection.py \
   --gateway-url <GatewayUrl> --access-token-a <user-a の ACCESS_TOKEN>
 
 # global ACL 方式のフィルタリングマトリクス (Retrieve API 直接)
-uv run python agent/verify_global_acl.py --kb-id <KbId>
+uv run python fgac-interceptor/agent/verify_global_acl.py --kb-id <KbId>
 
 # メタデータフィルタリングと ACL の併用 (Retrieve API 直接)
-uv run python agent/verify_metadata_filter.py --kb-id <KbId>
+uv run python fgac-interceptor/agent/verify_metadata_filter.py --kb-id <KbId>
 ```
 
 `verify_metadata_filter.py` は 2 段構成で検証する。前半は filter の基本動作 (`equals` / `andAll` / `greaterThan`)、後半は ACL と filter が独立した 2 つのゲートとして AND で効くことの切り分けである。ACL 許可 + filter 不一致が 0 件になることで「ACL 優先」仮説が、ACL 拒否 + filter 一致が 0 件になることで「filter 優先」仮説が、それぞれ棄却される。あわせて customer-managed KB の `vectorSearchConfiguration.filter` 構文が Managed KB では拒否されることも確認する。

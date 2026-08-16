@@ -1,6 +1,6 @@
 # AgentCore Policy による userContext 注入の多層防御
 
-ベース構成 (../cdk, ../agent) をベースに、AgentCore Policy (Cedar) を「Interceptor の注入結果を検証する」独立レイヤーとして追加した構成。評価順序が REQUEST Interceptor → Policy であることを利用し、tools/call の `userContext.userId` が JWT の email クレームと一致することを Policy Engine (ENFORCE) が検証する。
+ベース構成 (../fgac-interceptor) をベースに、AgentCore Policy (Cedar) を「Interceptor の注入結果を検証する」独立レイヤーとして追加した構成。評価順序が REQUEST Interceptor → Policy であることを利用し、tools/call の `userContext.userId` が JWT の email クレームと一致することを Policy Engine (ENFORCE) が検証する。
 
 ## ベース構成との差分
 

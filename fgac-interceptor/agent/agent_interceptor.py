@@ -7,7 +7,7 @@ REQUEST interceptor が userInfo エンドポイントで email を解決して
 userContext に強制設定する。
 
 Usage:
-    uv run python agent/agent_interceptor.py \
+    uv run python fgac-interceptor/agent/agent_interceptor.py \
         --gateway-url https://<gateway>.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp \
         --access-token <ACCESS_TOKEN> \
         --prompt "B部門の事業計画の計画管理コードを調べてください。"

@@ -10,7 +10,7 @@ Gateway の MCP エンドポイントに JSON-RPC の tools/call を直接送り
 3. 無効なアクセストークン: Gateway の authorizer が 401 で拒否する
 
 Usage:
-    uv run python agent/verify_usercontext_injection.py \
+    uv run python fgac-interceptor/agent/verify_usercontext_injection.py \
         --gateway-url <GatewayUrl> \
         --access-token-a <user-a の ACCESS_TOKEN>
 """

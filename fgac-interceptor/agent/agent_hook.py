@@ -16,7 +16,7 @@ GetUser は aws.cognito.signin.user.admin スコープを要求する
 ドメインの userInfo エンドポイント (openid スコープで動作) を使う。
 
 Usage:
-    uv run python agent/agent_hook.py \
+    uv run python fgac-interceptor/agent/agent_hook.py \
         --gateway-url https://<gateway>.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp \
         --access-token <ACCESS_TOKEN> \
         --prompt "A部門の事業計画に記載されている計画管理コードは何ですか？"

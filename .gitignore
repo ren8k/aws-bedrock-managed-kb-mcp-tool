@@ -3,4 +3,4 @@ __pycache__/
 *.pyc
 .mypy_cache/
 .ruff_cache/
-cdk/outputs.json
+fgac-interceptor/cdk/outputs.json
