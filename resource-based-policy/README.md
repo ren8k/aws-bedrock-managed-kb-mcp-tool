@@ -2,6 +2,8 @@
 
 advanced-policy (Interceptor + AgentCore Policy) をベースに、Managed KB 自体にアタッチする[リソースベースポリシー](https://docs.aws.amazon.com/bedrock/latest/userguide/kb-managed-cross-account.html)を経路非依存の第 3 レイヤーとして追加した構成。Gateway 側の制御 (Interceptor / Cedar Policy) は「その Gateway を通るリクエスト」しか守れない。KB 側のリソースベースポリシーは「正規 Gateway 実行ロール以外の `bedrock:Retrieve` / `bedrock:GetDocumentContent` を明示 Deny」することで、直接 API 呼び出しや Interceptor を持たない別 Gateway といったバイパス経路を KB の手前で遮断する。
 
+![リソースベースポリシーによる Managed KB へのアクセス元の制限](../docs/images/architecture-advanced-resource-based-policy.png)
+
 公式ドキュメントが示すリソースベースポリシーの用途はクロスアカウントアクセスの許可だが、Allow と Deny の両方をサポートし、明示 Deny は同一アカウント内の identity ポリシーの Allow も上書きする。本構成はこれを同一アカウント内のアクセス制限として利用し、実機検証した。
 
 ## ベース構成 (advanced-policy) との差分

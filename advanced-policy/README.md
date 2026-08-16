@@ -2,6 +2,8 @@
 
 ベース構成 (../fgac-interceptor) をベースに、AgentCore Policy (Cedar) を「Interceptor の注入結果を検証する」独立レイヤーとして追加した構成。評価順序が REQUEST Interceptor → Policy であることを利用し、tools/call の `userContext.userId` が JWT の email クレームと一致することを Policy Engine (ENFORCE) が検証する。
 
+![Interceptor 注入と AgentCore Policy 検証の多層防御アーキテクチャ](../docs/images/architecture-advanced.png)
+
 ## ベース構成との差分
 
 - Cognito の Pre Token Generation trigger (V2_0) がアクセストークンに email クレームを追加する。V2_0 のアクセストークンカスタマイズには feature plan ESSENTIALS 以上が必要 (スタックで明示)
@@ -11,6 +13,8 @@
 - データソースは docs (文書毎 ACL) の 1 本のみ、global ACL 方式は含まない (最小構成)
 
 ## 多層防御の構成
+
+![AgentCore Policy による注入後の userContext の検証](../docs/images/policy.png)
 
 | レイヤー                          | 役割                                                                           | 失敗時の挙動             |
 | --------------------------------- | ------------------------------------------------------------------------------ | ------------------------ |

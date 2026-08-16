@@ -1,6 +1,8 @@
-# Managed Knowledge Base を AgentCore Gateway 経由で MCP Tool として利用する
+# Managed Knowledge Base を AgentCore Gateway で MCP Tool として利用する際のデータのアクセス制御
 
 Amazon Bedrock Managed Knowledge Base を AgentCore Gateway のコネクタターゲットで MCP ツール化し、REQUEST Interceptor で `userContext` を注入して ACL-aware retrieval をユーザー毎に成立させる検証コードを公開している。基本形の fgac-interceptor に加え、AgentCore Policy (Cedar) で注入結果を検証する advanced-policy、KB のリソースベースポリシーでアクセス経路自体を制限する resource-based-policy の 2 つの発展形を含む。各構成は独立した CDK スタック 1 つで自己完結する。
+
+![Managed KB を Agent から利用する際のデータのアクセス制御](docs/images/intro-summary.png)
 
 解説記事: [Bedrock Managed Knowledge Base を MCP Tool として利用する際のテナント分離・アクセス制御まとめ](https://zenn.dev/aws_japan/articles/007-bedrock-agentcore-gateway-managed-kb-mcp)
 
@@ -8,22 +10,14 @@ Amazon Bedrock Managed Knowledge Base を AgentCore Gateway のコネクタタ�
 
 ```
 fgac-interceptor/               基本形: FGAC (ACL + メタデータフィルタリング) を Interceptor 注入で成立させる構成
-  cdk/                          インフラ (AWS CDK, TypeScript)
-    bin/app.ts                  エントリポイント
-    lib/managed-kb-gateway-stack.ts  S3 + Managed KB + Cognito + Gateway + Interceptor + KB target
-    lambda/interceptor/handler.py    REQUEST Interceptor (userInfo / GetUser で email 解決 + userContext 注入)
-    dataset/docs/               テスト文書 + per-document ACL + metadataAttributes
-    dataset/global-docs/        テスト文書 (global ACL ファイルで制御。no-acl/ は ACL なし)
-  agent/                        Agent 実装 (Strands Agents, Python)
-    run.sh                      トークン発行 + 各スクリプト実行のヘルパー
-    agent_interceptor.py        方式 1: Interceptor 注入構成のクライアント (フックなし)
-    agent_hook.py               方式 2: BeforeToolCallEvent フックで注入するクライアント
-    list_gateway_tools.py       tools/list の直接実行 (公開スキーマの採取)
-    verify_usercontext_injection.py  注入・詐称防止の直接呼び出し検証
-    verify_global_acl.py        global ACL 方式のフィルタリング検証
-    verify_metadata_filter.py   メタデータフィルタリングと ACL の併用 (AND) 検証
-advanced-policy/                発展形: AgentCore Policy (Cedar) による多層防御の派生構成 (詳細は advanced-policy/README.md)
-resource-based-policy/          発展形: KB のリソースベースポリシーによる経路非依存の制限を追加した派生構成 (詳細は resource-based-policy/README.md)
+  cdk/                          S3 + Managed KB + Cognito + Gateway + REQUEST Interceptor + テスト文書 (AWS CDK, TypeScript)
+  agent/                        Agent クライアントと検証スクリプト (Strands Agents, Python)。run.sh が実行ヘルパー
+advanced-policy/                発展形: AgentCore Policy (Cedar) で注入後の userContext を検証する多層防御構成 (詳細は advanced-policy/README.md)
+  cdk/                          基本形 + Pre Token Generation Lambda + Policy Engine + 検証用 Gateway
+  agent/                        Policy の deny 観測を含む検証スクリプト
+resource-based-policy/          発展形: KB のリソースベースポリシーでバイパス経路を遮断する構成 (詳細は resource-based-policy/README.md)
+  cdk/                          advanced-policy + KB リソースベースポリシー + rogue ロール / Gateway
+  agent/                        バイパス経路の遮断確認を含む検証スクリプト
 ```
 
 スタックが作成するリソース: S3 バケット (テスト文書 + ACL サイドカー + global ACL ファイルを自動配置) / Managed Knowledge Base (type: MANAGED) + ACL 有効 S3 データソース x2 (文書毎メタデータ方式 / global ACL ファイル方式) / IAM ロール x2 (KB サービスロール / Gateway 実行ロール) / Cognito user pool + ドメイン (userInfo エンドポイント) + app client + テストユーザー x2 / テストユーザーパスワードの Secrets Manager シークレット + パスワード設定用 AwsCustomResource / REQUEST Interceptor Lambda / AgentCore Gateway (CUSTOM_JWT) + Managed KB connector target。target は `Retrieve` (単発検索) と `AgenticRetrieveStream` (マルチステップ検索) の 2 ツールを公開する。
@@ -53,6 +47,8 @@ global ACL ファイルは文書の絶対 S3 URI で対象を指定するため�
 filter は Gateway のツールスキーマには公開していない。Target の `parameterOverrides` で visible にしているのは `$.userContext` のみで、検索クエリ (`retrievalQuery` / `messages`) はコネクタ既定でスキーマに現れる。アクセス制御を担う値を LLM に組み立てさせないという設計方針であり、filter の検証は `Retrieve` API 直接で行う。
 
 ## 認証と userContext の解決 (OAuth 2.0 準拠)
+
+![AgentCore Gateway を介した Tool Call 引数の注入](docs/images/interceptor.png)
 
 クライアントが送るのは Authorization ヘッダーのアクセストークン 1 つだけで、標準的な OAuth 2.0 の bearer 認証と同じ形になる。
 
