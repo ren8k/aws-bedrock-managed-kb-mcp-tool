@@ -20,7 +20,14 @@ resource-based-policy/          発展形: KB のリソースベースポリシ�
   agent/                        バイパス経路の遮断確認を含む検証スクリプト
 ```
 
-スタックが作成するリソース: S3 バケット (テスト文書 + ACL サイドカー + global ACL ファイルを自動配置) / Managed Knowledge Base (type: MANAGED) + ACL 有効 S3 データソース x2 (文書毎メタデータ方式 / global ACL ファイル方式) / IAM ロール x2 (KB サービスロール / Gateway 実行ロール) / Cognito user pool + ドメイン (userInfo エンドポイント) + app client + テストユーザー x2 / テストユーザーパスワードの Secrets Manager シークレット + パスワード設定用 AwsCustomResource / REQUEST Interceptor Lambda / AgentCore Gateway (CUSTOM_JWT) + Managed KB connector target。target は `Retrieve` (単発検索) と `AgenticRetrieveStream` (マルチステップ検索) の 2 ツールを公開する。
+fgac-interceptor のスタックが作成するリソースは以下のとおり。
+
+- S3 バケット: テスト文書、ACL サイドカー、global ACL ファイルを自動配置
+- Managed Knowledge Base (type: MANAGED): ACL 有効の S3 データソース x2 (文書毎メタデータ方式 / global ACL ファイル方式)
+- Cognito: user pool、ドメイン (userInfo エンドポイント)、app client、テストユーザー x2。パスワードは Secrets Manager に自動生成し、AwsCustomResource で設定
+- REQUEST Interceptor Lambda: userContext を注入する
+- AgentCore Gateway (CUSTOM_JWT) + Managed KB connector target: `Retrieve` (単発検索) と `AgenticRetrieveStream` (マルチステップ検索) の 2 ツールを公開
+- IAM ロール x2: KB サービスロールと Gateway 実行ロール
 
 ## フィルタリングの 3 方式
 
