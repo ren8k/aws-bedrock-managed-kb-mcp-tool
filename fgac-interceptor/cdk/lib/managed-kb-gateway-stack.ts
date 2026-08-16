@@ -19,7 +19,7 @@ import { Construct } from "constructs";
  * - Managed Knowledge Base (type MANAGED) + ACL-enabled S3 data source
  * - Cognito user pool + domain (userInfo endpoint) + app client
  * - REQUEST interceptor Lambda (resolves email from the access token
- *   via the OIDC userInfo endpoint, injects it into userContext)
+ *   via OIDC userInfo or Cognito GetUser, injects it into userContext)
  * - Gateway (CUSTOM_JWT, access-token auth) + Managed KB connector target
  *
  * Token handling follows OAuth semantics: the client sends only the
@@ -215,8 +215,9 @@ export class ManagedKbGatewayStack extends cdk.Stack {
 		const discoveryUrl = `https://cognito-idp.${region}.amazonaws.com/${userPool.userPoolId}/.well-known/openid-configuration`;
 
 		// ---- Test users (verification only) ----
-		// The password is generated per deployment and stored in Secrets
-		// Manager; it never appears in the template or the repository.
+		// The password is generated once when the secret is created and
+		// stored in Secrets Manager; it never appears in the template or
+		// the repository.
 		const testPasswordSecret = new secretsmanager.Secret(
 			this,
 			"TestUserPassword",
@@ -299,8 +300,8 @@ export class ManagedKbGatewayStack extends cdk.Stack {
 		}
 
 		// ---- REQUEST interceptor Lambda ----
-		// Standard library only: email is resolved via the OIDC userInfo
-		// endpoint using the authorizer-verified access token, so no JWT
+		// Email is resolved with the authorizer-verified access token via
+		// OIDC userInfo (openid scope) or Cognito GetUser, so no JWT
 		// verification (and no dependency layer) is needed here.
 		const interceptorFn = new lambda.Function(this, "InterceptorFn", {
 			functionName: "managed-kb-usercontext-interceptor",

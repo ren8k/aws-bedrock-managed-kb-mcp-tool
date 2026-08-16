@@ -1,6 +1,8 @@
 # Managed Knowledge Base を AgentCore Gateway 経由で MCP Tool として利用する
 
-Amazon Bedrock Managed Knowledge Base を AgentCore Gateway のコネクタターゲットで MCP ツール化し、REQUEST Interceptor で `userContext` を注入して ACL-aware retrieval をユーザー毎に成立させる検証コード一式。CDK スタック 1 つで検証環境が自己完結する。
+Amazon Bedrock Managed Knowledge Base を AgentCore Gateway のコネクタターゲットで MCP ツール化し、REQUEST Interceptor で `userContext` を注入して ACL-aware retrieval をユーザー毎に成立させる検証コードを公開している。基本形の fgac-interceptor に加え、AgentCore Policy (Cedar) で注入結果を検証する advanced-policy、KB のリソースベースポリシーでアクセス経路自体を制限する resource-based-policy の 2 つの発展形を含む。各構成は独立した CDK スタック 1 つで自己完結する。
+
+解説記事: [Bedrock Managed Knowledge Base を MCP Tool として利用する際のテナント分離・アクセス制御まとめ](https://zenn.dev/aws_japan/articles/007-bedrock-agentcore-gateway-managed-kb-mcp)
 
 ## 構成
 
@@ -9,7 +11,7 @@ fgac-interceptor/               基本形: FGAC (ACL + メタデータフィル�
   cdk/                          インフラ (AWS CDK, TypeScript)
     bin/app.ts                  エントリポイント
     lib/managed-kb-gateway-stack.ts  S3 + Managed KB + Cognito + Gateway + Interceptor + KB target
-    lambda/interceptor/handler.py    REQUEST Interceptor (userInfo で email 解決 + userContext 注入)
+    lambda/interceptor/handler.py    REQUEST Interceptor (userInfo / GetUser で email 解決 + userContext 注入)
     dataset/docs/               テスト文書 + per-document ACL + metadataAttributes
     dataset/global-docs/        テスト文書 (global ACL ファイルで制御。no-acl/ は ACL なし)
   agent/                        Agent 実装 (Strands Agents, Python)
@@ -24,14 +26,17 @@ advanced-policy/                発展形: AgentCore Policy (Cedar) による多
 resource-based-policy/          発展形: KB のリソースベースポリシーによる経路非依存の制限を追加した派生構成 (詳細は resource-based-policy/README.md)
 ```
 
-スタックが作成するリソース: S3 バケット (テスト文書 + ACL サイドカー + global ACL ファイルを自動配置) / Managed Knowledge Base (type: MANAGED) + ACL 有効 S3 データソース x2 (文書毎メタデータ方式 / global ACL ファイル方式) / Cognito user pool + ドメイン (userInfo エンドポイント) + app client + テストユーザー x2 / REQUEST Interceptor Lambda / AgentCore Gateway (CUSTOM_JWT) + Managed KB connector target。
+スタックが作成するリソース: S3 バケット (テスト文書 + ACL サイドカー + global ACL ファイルを自動配置) / Managed Knowledge Base (type: MANAGED) + ACL 有効 S3 データソース x2 (文書毎メタデータ方式 / global ACL ファイル方式) / IAM ロール x2 (KB サービスロール / Gateway 実行ロール) / Cognito user pool + ドメイン (userInfo エンドポイント) + app client + テストユーザー x2 / テストユーザーパスワードの Secrets Manager シークレット + パスワード設定用 AwsCustomResource / REQUEST Interceptor Lambda / AgentCore Gateway (CUSTOM_JWT) + Managed KB connector target。target は `Retrieve` (単発検索) と `AgenticRetrieveStream` (マルチステップ検索) の 2 ツールを公開する。
 
 ## フィルタリングの 3 方式
 
-| データソース  | プレフィックス | 定義方法                                            | テスト文書                                                         |
-| ------------- | -------------- | --------------------------------------------------- | ------------------------------------------------------------------ |
-| `docs`        | `docs/`        | 文書毎のメタデータファイル (`{名前}.metadata.json`) | dept-a-plan (user-a) / dept-b-plan (user-b) / shared-notice (両者) |
-| `global-docs` | `global-docs/` | global ACL ファイル (`acl-config/global-acl.json`)  | finance/budget (user-a) / hr/rules (user-b) / no-acl/ (ACL なし)   |
+Managed KB のユーザー毎の絞り込みには、global ACL (プレフィックス単位)、文書毎の ACL (文書単位)、メタデータフィルタリング (属性単位) の 3 方式がある。前者 2 つはクエリ時の `userContext` で、最後はクエリ時の `filter` で制御する。本スタックは ACL の 2 方式をデータソースを分けて検証し、メタデータフィルタリングは文書毎 ACL と同じサイドカーで併用する。
+
+| 方式                     | データソース (プレフィックス)  | 定義場所                                                                                  | テスト文書                                                         |
+| ------------------------ | ------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| global ACL               | `global-docs` (`global-docs/`) | `acl-config/global-acl.json`                                                              | finance/budget (user-a) / hr/rules (user-b) / no-acl/ (ACL なし)   |
+| 文書毎の ACL             | `docs` (`docs/`)               | `{ファイル名}.metadata.json` の `accessControlList` (例: `dept-a-plan.txt.metadata.json`) | dept-a-plan (user-a) / dept-b-plan (user-b) / shared-notice (両者) |
+| メタデータフィルタリング | `docs` (`docs/`)               | 同じサイドカーの `metadataAttributes`                                                     | 下表の department / year 属性                                      |
 
 global ACL ファイルは文書の絶対 S3 URI で対象を指定するため静的アセットにできず、CDK が `s3deploy.Source.jsonData` でバケット名を埋め込んで生成する。`global-docs/no-acl/` 配下の文書はどの `keyPrefix` にも該当せずサイドカーも持たないため取り込まれない (fail-closed の確認用。2026 年 8 月の実測ではインジェストは COMPLETE で完了し、3 件スキャン中 2 件のみがインデックスされる)。
 
@@ -45,7 +50,7 @@ global ACL ファイルは文書の絶対 S3 URI で対象を指定するため�
 
 属性値に区切り文字 (ハイフン / アンダースコア) を含めていないのは意図的である。`equals` の文字列比較はトークン分割 + ストップワード除去で評価されるため、`dept-a` のような値は他の `dept-*` 文書にも誤マッチする。
 
-filter は Gateway のツールスキーマには公開していない (Target で visible にしているのは `$.userContext` のみ)。アクセス制御を担う値を LLM に組み立てさせないという設計方針であり、filter の検証は `Retrieve` API 直接で行う。
+filter は Gateway のツールスキーマには公開していない。Target の `parameterOverrides` で visible にしているのは `$.userContext` のみで、検索クエリ (`retrievalQuery` / `messages`) はコネクタ既定でスキーマに現れる。アクセス制御を担う値を LLM に組み立てさせないという設計方針であり、filter の検証は `Retrieve` API 直接で行う。
 
 ## 認証と userContext の解決 (OAuth 2.0 準拠)
 
@@ -67,7 +72,7 @@ npm install
 npx cdk deploy ManagedKbGatewayStack --outputs-file outputs.json
 ```
 
-テストユーザー (user-a@example.com / user-b@example.com) もスタックが作成する。パスワードはデプロイ毎に Secrets Manager (`managed-kb-test-user-password`) に生成され、リポジトリやテンプレートには現れない。CloudFormation ネイティブ (`CfnUserPoolUser`) では恒久パスワードを設定できないため、`AwsCustomResource` による `adminSetUserPassword` (Permanent: true) を併用しており、デプロイ直後から `USER_PASSWORD_AUTH` で認証できる。
+テストユーザー (user-a@example.com / user-b@example.com) もスタックが作成する。パスワードは初回デプロイ時に Secrets Manager (`managed-kb-test-user-password`) に自動生成され、リポジトリやテンプレートには現れない。CloudFormation ネイティブ (`CfnUserPoolUser`) では恒久パスワードを設定できないため、`AwsCustomResource` による `adminSetUserPassword` (Permanent: true) を併用しており、デプロイ直後から `USER_PASSWORD_AUTH` で認証できる。
 
 ```bash
 # テストユーザーのパスワードの取得
@@ -93,7 +98,7 @@ aws bedrock-agent start-ingestion-job \
 
 ## Agent の実行
 
-`fgac-interceptor/agent/run.sh` が `fgac-interceptor/cdk/outputs.json` から Gateway URL / KB ID / Cognito 設定を読み、Secrets Manager のパスワードでアクセストークンを発行してから各スクリプトを実行する。ユーザーは `a` / `b` で切り替える (既定は `a`)。
+`fgac-interceptor/agent/run.sh` が `fgac-interceptor/cdk/outputs.json` から Gateway URL / KB ID / Cognito 設定を読み、Secrets Manager のパスワードでアクセストークンを発行してから各スクリプトを実行する。ユーザーは各サブコマンド末尾の引数 `a` / `b` で切り替える (既定は `a`。`tools` / `verify-injection` も同様に引数を取る)。
 
 ```bash
 ./fgac-interceptor/agent/run.sh agent "A部門の事業計画に記載されている計画管理コードは何ですか？"      # 方式 1
